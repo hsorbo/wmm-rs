@@ -1,24 +1,24 @@
 mod constants;
+const MAX_N: usize = 13;
 
 pub struct Coefficients {
-    pub(crate) g_coeff: [[f32; 13]; 13],
-    pub(crate) h_coeff: [[f32; 13]; 13],
-    pub(crate) delta_g: [[f32; 13]; 13],
-    pub(crate) delta_h: [[f32; 13]; 13],
+    pub(crate) g_coeff: [[f32; MAX_N]; MAX_N],
+    pub(crate) h_coeff: [[f32; MAX_N]; MAX_N],
+    pub(crate) delta_g: [[f32; MAX_N]; MAX_N],
+    pub(crate) delta_h: [[f32; MAX_N]; MAX_N],
     pub(crate) base_time: i64,
 }
 
-pub fn compute_schmidt_quasi_norm_factors(max_n: usize) -> Vec<Vec<f32>> {
-    let mut schmidt_quasi_norm: Vec<Vec<f32>> = vec![];
-    schmidt_quasi_norm.push(vec![1.0]);
-    for n in 1..=max_n {
-        let mut current = vec![];
-        current.push(schmidt_quasi_norm[n - 1][0] * (2 * n - 1) as f32 / n as f32);
+fn compute_schmidt_quasi_norm_factors<const N: usize>() -> [[f32; N]; N] {
+    let mut schmidt_quasi_norm: [[f32; N]; N] = [[0.0; N]; N];
+    schmidt_quasi_norm[0][0] = 1.0;
+    for n in 1..N {
+        let mut v = schmidt_quasi_norm[n - 1][0] * (2 * n - 1) as f32 / n as f32;
+        schmidt_quasi_norm[n][0] = v;
         for m in 1..=n {
-            let a = (((n - m + 1) as f32 * if m == 1 { 2.0 } else { 1.0 }) / (n + m) as f32).sqrt();
-            current.push(current.last().unwrap() * a);
+            v *= (((n - m + 1) as f32 * if m == 1 { 2.0 } else { 1.0 }) / (n + m) as f32).sqrt();
+            schmidt_quasi_norm[n][m] = v;
         }
-        schmidt_quasi_norm.push(current);
     }
     schmidt_quasi_norm
 }
@@ -98,10 +98,16 @@ pub struct GeomagneticField {
 }
 
 impl GeomagneticField {
-    pub fn new(coeff: &Coefficients, gd_lat_deg: f32, gd_lon_deg: f32, alt_meters: f32, time_ms: i64) -> Self {
+    pub fn new(
+        coeff: &Coefficients,
+        gd_lat_deg: f32,
+        gd_lon_deg: f32,
+        alt_meters: f32,
+        time_ms: i64,
+    ) -> Self {
         //todo static
-        let SCHMIDT_QUASI_NORM_FACTORS = compute_schmidt_quasi_norm_factors(coeff.g_coeff.len());
-        let max_n = coeff.g_coeff.len();
+
+        let SCHMIDT_QUASI_NORM_FACTORS = compute_schmidt_quasi_norm_factors::<MAX_N>();
 
         let mut field = {
             let lat_cut = 89.99999f32.min(gd_lat_deg).max(-89.99999);
@@ -117,23 +123,22 @@ impl GeomagneticField {
             }
         };
 
-
         let legendre =
-            LegendreTable::new(max_n - 1, std::f32::consts::FRAC_PI_2 - field.gc_lat_rad);
-        let mut relative_radius_power = vec![0.0; max_n + 2];
+            LegendreTable::new(MAX_N - 1, std::f32::consts::FRAC_PI_2 - field.gc_lat_rad);
+        let mut relative_radius_power = [0.0; MAX_N + 2];
         relative_radius_power[0] = 1.0;
         relative_radius_power[1] = 6371.2 / field.gc_radius_km;
-        for n in 2..=max_n + 1 {
+        for n in 2..=MAX_N + 1 {
             relative_radius_power[n] = relative_radius_power[n - 1] * relative_radius_power[1];
         }
 
-        let mut sin_lon: Vec<f32> = vec![0.; max_n];
-        let mut cos_lon: Vec<f32> = vec![0.; max_n];
+        let mut sin_lon = [0.; MAX_N];
+        let mut cos_lon = [0.; MAX_N];
         sin_lon[0] = 0.;
         cos_lon[0] = 1.;
         sin_lon[1] = field.gc_lon_rad.sin();
         cos_lon[1] = field.gc_lon_rad.cos();
-        for m in 2..=max_n - 1 {
+        for m in 2..=MAX_N - 1 {
             let x = m >> 1;
             sin_lon[m] = sin_lon[m - x] * cos_lon[x] + cos_lon[m - x] * sin_lon[x];
             cos_lon[m] = cos_lon[m - x] * cos_lon[x] - sin_lon[m - x] * sin_lon[x];
@@ -143,7 +148,7 @@ impl GeomagneticField {
         let years_since_base = (time_delta as f32) / 3.1536001E10; //(1000.0 * 60.0 * 60.0 * 24.0 * 365.25);
         let mut x = 0f32;
         let mut z = 0f32;
-        for n in 1..max_n {
+        for n in 1..MAX_N {
             for m in 0..=n {
                 let g = coeff.g_coeff[n][m] + coeff.delta_g[n][m] * years_since_base;
                 let h = coeff.h_coeff[n][m] + coeff.delta_h[n][m] * years_since_base;
@@ -177,32 +182,35 @@ impl GeomagneticField {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
 
     fn test_get_declination() {
-        let x = GeomagneticField::new(&constants::WMM2015, 20.200628, -87.500114, 0.0, 1609545600000);
+        let x = GeomagneticField::new(
+            &constants::WMM2015,
+            20.200628,
+            -87.500114,
+            0.0,
+            1609545600000,
+        );
         let z = x.get_declination();
         assert_eq!(z, -1.7856733);
     }
 
     #[test]
     fn test_compute_schmidt_quasi_norm_factors() {
-        let x = compute_schmidt_quasi_norm_factors(6);
+        let x = compute_schmidt_quasi_norm_factors::<6>();
         assert_eq!(
             x,
-            vec![
-                vec![1.0],
-                vec![1.0, 1.0],
-                vec![1.5, 1.7320508, 0.8660254],
-                vec![2.5, 3.0618622, 1.9364917, 0.7905695],
-                vec![4.375, 5.533986, 3.913119, 2.09165, 0.73950994],
-                vec![7.875, 10.166581, 7.6852126, 4.7062125, 2.21853, 0.70156074],
-                vec![14.4375, 18.903124, 14.944232, 9.962822, 5.4568624, 2.326814, 0.6716933]
+            [
+                [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+                [1.5, 1.7320508, 0.8660254, 0.0, 0.0, 0.0],
+                [2.5, 3.0618622, 1.9364917, 0.7905695, 0.0, 0.0],
+                [4.375, 5.533986, 3.913119, 2.09165, 0.73950994, 0.0],
+                [7.875, 10.166581, 7.6852126, 4.7062125, 2.21853, 0.70156074],
             ]
         );
     }
-}
