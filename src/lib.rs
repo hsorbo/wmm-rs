@@ -1,4 +1,6 @@
-mod constants;
+pub mod constants;
+pub mod utils;
+
 const MAX_N: usize = 13;
 
 pub struct Coefficients {
@@ -89,9 +91,9 @@ impl LegendreTable {
 }
 
 pub struct GeomagneticField {
-    x: f32,
-    y: f32,
-    z: f32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
     gc_lat_rad: f32,
     gc_lon_rad: f32,
     gc_radius_km: f32,
