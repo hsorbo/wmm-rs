@@ -48,43 +48,38 @@ fn compute_geocentric_coordinates(
 }
 
 struct LegendreTable {
-    p: Vec<Vec<f32>>,
-    p_deriv: Vec<Vec<f32>>,
+    p: [[f32; MAX_N]; MAX_N],
+    p_deriv: [[f32; MAX_N]; MAX_N],
 }
 
 impl LegendreTable {
-    pub fn new(max_n: usize, theta_rad: f32) -> Self {
+    pub fn new(theta_rad: f32) -> Self {
         let cos = theta_rad.cos();
         let sin = theta_rad.sin();
         let mut t = LegendreTable {
-            p: vec![vec![]; max_n + 1],
-            p_deriv: vec![vec![]; max_n + 1],
+            p: [[0.; MAX_N]; MAX_N],
+            p_deriv: [[0.; MAX_N]; MAX_N],
         };
-        t.p[0].push(1.0);
-        t.p_deriv[0].push(0.0);
-        for n in 1..=max_n {
-            let mut current = vec![];
-            let mut current_deriv = vec![];
+        t.p[0][0] = 1.0;
+        t.p_deriv[0][0] = 0.0;
+        for n in 1..=(MAX_N - 1) {
             for m in 0..=n {
                 if n == m {
-                    current.push(sin * t.p[n - 1][m - 1]);
-                    current_deriv.push(cos * t.p[n - 1][m - 1] + sin * t.p_deriv[n - 1][m - 1]);
+                    t.p[n][m] = sin * t.p[n - 1][m - 1];
+                    t.p_deriv[n][m] = cos * t.p[n - 1][m - 1] + sin * t.p_deriv[n - 1][m - 1];
                 } else if n == 1 || m == n - 1 {
-                    current.push(cos * t.p[n - 1][m]);
-                    current_deriv.push(-sin * t.p[n - 1][m] + cos * t.p_deriv[n - 1][m]);
+                    t.p[n][m] = cos * t.p[n - 1][m];
+                    t.p_deriv[n][m] = -sin * t.p[n - 1][m] + cos * t.p_deriv[n - 1][m];
                 } else {
                     assert!(n > 1 && m < n - 1);
                     let nf = n as f32;
                     let mf = m as f32;
                     let k = ((nf - 1.) * (nf - 1.) - mf * mf) / ((2. * nf - 1.) * (2. * nf - 3.));
-                    current.push(cos * t.p[n - 1][m] - k * t.p[n - 2][m]);
-                    current_deriv.push(
-                        -sin * t.p[n - 1][m] + cos * t.p_deriv[n - 1][m] - k * t.p_deriv[n - 2][m],
-                    );
+                    t.p[n][m] = cos * t.p[n - 1][m] - k * t.p[n - 2][m];
+                    t.p_deriv[n][m] =
+                        -sin * t.p[n - 1][m] + cos * t.p_deriv[n - 1][m] - k * t.p_deriv[n - 2][m];
                 }
             }
-            t.p[n] = current;
-            t.p_deriv[n] = current_deriv;
         }
         t
     }
@@ -109,7 +104,7 @@ impl GeomagneticField {
     ) -> Self {
         //todo static
 
-        let SCHMIDT_QUASI_NORM_FACTORS = compute_schmidt_quasi_norm_factors::<MAX_N>();
+        let schmidt_quasi_norm_factors = compute_schmidt_quasi_norm_factors::<MAX_N>();
 
         let mut field = {
             let lat_cut = 89.99999f32.min(gd_lat_deg).max(-89.99999);
@@ -125,8 +120,7 @@ impl GeomagneticField {
             }
         };
 
-        let legendre =
-            LegendreTable::new(MAX_N - 1, std::f32::consts::FRAC_PI_2 - field.gc_lat_rad);
+        let legendre = LegendreTable::new(std::f32::consts::FRAC_PI_2 - field.gc_lat_rad);
         let mut relative_radius_power = [0.0; MAX_N + 2];
         relative_radius_power[0] = 1.0;
         relative_radius_power[1] = 6371.2 / field.gc_radius_km;
@@ -157,20 +151,20 @@ impl GeomagneticField {
                 x += relative_radius_power[n + 2]
                     * (g * cos_lon[m] + h * sin_lon[m])
                     * legendre.p_deriv[n][m]
-                    * SCHMIDT_QUASI_NORM_FACTORS[n][m];
+                    * schmidt_quasi_norm_factors[n][m];
 
                 field.y += relative_radius_power[n + 2]
                     * (m as f32)
                     * (g * sin_lon[m] - h * cos_lon[m])
                     * legendre.p[n][m]
-                    * SCHMIDT_QUASI_NORM_FACTORS[n][m]
+                    * schmidt_quasi_norm_factors[n][m]
                     * inverse_cos_latitude;
 
                 z -= (n as f32 + 1.)
                     * relative_radius_power[n + 2]
                     * (g * cos_lon[m] + h * sin_lon[m])
                     * legendre.p[n][m]
-                    * SCHMIDT_QUASI_NORM_FACTORS[n][m];
+                    * schmidt_quasi_norm_factors[n][m];
             }
             let lat_diff_rad = gd_lat_deg.to_radians() - field.gc_lat_rad;
             field.x = x * lat_diff_rad.cos() + z * lat_diff_rad.sin();
@@ -216,3 +210,4 @@ mod tests {
             ]
         );
     }
+}
