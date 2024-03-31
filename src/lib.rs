@@ -1,4 +1,4 @@
-mod constants;
+pub mod constants;
 
 pub struct Coefficients {
     pub(crate) g_coeff: [[f32; 13]; 13],
